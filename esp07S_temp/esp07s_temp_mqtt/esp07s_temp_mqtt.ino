@@ -1,4 +1,4 @@
-#include <ESP8266WiFi.h>  // Pro ESP8266
+#include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <EEPROM.h>
 #include <PubSubClient.h>
@@ -24,12 +24,11 @@ String temperature_topic = "";
 String humidity_topic = "";
 String status_topic = "";
 
-const char* status_topic_default = "home/esp/status";  // Výchozí topic pro status
-
 ESP8266WebServer server(80);
 WiFiClient espClient;
 PubSubClient client(espClient);
 
+// Funkce pro uložení do EEPROM
 void saveToEEPROM() {
   EEPROM.begin(EEPROM_SIZE);
   String data = wifi_ssid + "|" + wifi_password + "|" + mqtt_server + "|" + mqtt_port + "|" + mqtt_user + "|" + mqtt_password;
@@ -41,6 +40,7 @@ void saveToEEPROM() {
   Serial.println("Nastavení uloženo do EEPROM!");
 }
 
+// Funkce pro načtení z EEPROM
 void loadFromEEPROM() {
   EEPROM.begin(EEPROM_SIZE);
   String data = "";
@@ -69,12 +69,18 @@ void loadFromEEPROM() {
   Serial.println("MQTT Server: " + mqtt_server);
 }
 
+// Funkce pro získání HTML pro nastavení zařízení
 String getHTML() {
-  String html = "<html><head><style>";
-  html += "body { font-family: Arial, sans-serif; }";
-  html += "h1 { color: #333; }";
-  html += "input[type='text'], input[type='password'] { padding: 8px; margin: 5px; width: 200px; }";
-  html += "input[type='submit'] { padding: 8px 16px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }";
+  String html = "<html><head>";
+  html += "<meta charset=\"UTF-8\">";
+  html += "<style>";
+  html += "body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; color: #333; }";
+  html += "h1 { color: #333; text-align: center; font-size: 24px; margin-top: 20px; }";
+  html += "form { background-color: #fff; padding: 20px; width: 300px; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }";
+  html += "input[type='text'], input[type='password'] { padding: 8px; margin: 10px 0 20px; width: 100%; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }";
+  html += "input[type='submit'] { padding: 10px 20px; background-color: #4CAF50; color: white; border: none; cursor: pointer; border-radius: 4px; width: 100%; }";
+  html += "input[type='submit']:hover { background-color: #45a049; }";
+  html += "h3 { text-align: center; color: #555; }";
   html += "</style></head><body>";
   html += "<h1>Nastavení zařízení</h1>";
   html += "<form action='/save' method='POST'>";
@@ -91,10 +97,12 @@ String getHTML() {
   return html;
 }
 
+// Funkce pro zpracování požadavku na hlavní stránku
 void handleRoot() {
   server.send(200, "text/html", getHTML());
 }
 
+// Funkce pro zpracování uložení nastavení
 void handleSave() {
   if (server.hasArg("ssid")) wifi_ssid = server.arg("ssid");
   if (server.hasArg("password")) wifi_password = server.arg("password");
@@ -105,18 +113,20 @@ void handleSave() {
 
   saveToEEPROM();
 
+  server.sendHeader("Content-Type", "text/html; charset=UTF-8");
   server.send(200, "text/html", "<h1>Nastavení uloženo! Zařízení se restartuje...</h1>");
   delay(1000);
   ESP.restart();
 }
 
+// Funkce pro připojení k Wi-Fi
 void connectToWiFi() {
   WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
   Serial.print("Připojuji se k Wi-Fi...");
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
     delay(1000);
-    Serial.print(".");
+    Serial.print("...");
   }
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("Připojeno!");
@@ -124,11 +134,12 @@ void connectToWiFi() {
   } else {
     Serial.println("Nepodařilo se připojit k Wi-Fi.");
     WiFi.mode(WIFI_AP);
-    WiFi.softAP("ESP_Device");
-    Serial.println("Vytvořena Wi-Fi síť 'ESP_Device'.");
+    WiFi.softAP(device_id); // Vytvoření Wi-Fi sítě s názvem device_id (MAC adresa)
+    Serial.println("Vytvořena Wi-Fi síť: " + device_id);
   }
 }
 
+// Funkce pro připojení k MQTT
 void connectToMQTT() {
   while (!client.connected()) {
     Serial.print("Připojuji se k MQTT...");
@@ -143,12 +154,14 @@ void connectToMQTT() {
   }
 }
 
+// Funkce pro aktualizaci MQTT topiců
 void updateMQTTTopics() {
   temperature_topic = "home/esp/" + device_id + "/temperature";
   humidity_topic = "home/esp/" + device_id + "/humidity";
   status_topic = "home/esp/" + device_id + "/status";
 }
 
+// Funkce pro kontrolu tlačítka pro tovární reset
 void checkFlashButton() {
   static unsigned long pressStartTime = 0;
 
@@ -165,25 +178,14 @@ void checkFlashButton() {
   }
 }
 
+// Funkce pro provedení továrního resetu
 void resetToFactorySettings() {
   EEPROM.begin(EEPROM_SIZE);
   for (int i = 0; i < EEPROM_SIZE; i++) {
     EEPROM.write(i, 0);
   }
   EEPROM.commit();
-  Serial.println("Tovární nastavení obnoveno!");
-  
-  // Nastavení výchozích hodnot
-  wifi_ssid = "";
-  wifi_password = "";
-  mqtt_server = "";
-  mqtt_port = "1883";
-  mqtt_user = "";
-  mqtt_password = "";
-  
-  saveToEEPROM(); // Uložení výchozích hodnot
-
-  delay(1000);
+  Serial.println("Tovární reset proveden!");
   ESP.restart();
 }
 
@@ -193,8 +195,11 @@ void setup() {
   pinMode(FLASH_BUTTON_PIN, INPUT_PULLUP);
   dht.begin();
 
-  device_id = WiFi.macAddress(); // Získání MAC adresy jako Device ID
-  Serial.println("Device ID (MAC adresa): " + device_id);
+  // Nastavení device_id na Wi-Fi SSID nebo MAC adresu bez dvojteček
+  device_id = WiFi.macAddress();
+  device_id.replace(":", ""); // Odstraní dvojtečky z MAC adresy
+  device_id = "esp_" + device_id; // Prefix pro název sítě
+  Serial.println("Device ID (Wi-Fi SSID/MAC): " + device_id);
 
   loadFromEEPROM();
 
@@ -202,8 +207,8 @@ void setup() {
     connectToWiFi();
   } else {
     WiFi.mode(WIFI_AP);
-    WiFi.softAP("ESP_Device");
-    Serial.println("Vytvořena Wi-Fi síť 'ESP_Device'.");
+    WiFi.softAP(device_id); // Nastaví název AP na device_id
+    Serial.println("Vytvořena Wi-Fi síť: " + device_id);
   }
 
   updateMQTTTopics();  // Aktualizace MQTT topiců podle device_id
